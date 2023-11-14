@@ -7,7 +7,7 @@ contract PunksDataTest is Test {
     /*//////////////////////////////////////////////////////////////
                                 USER DEFINED
     //////////////////////////////////////////////////////////////*/
-    uint16 internal constant PUNK_ID = 35;
+    uint16 internal constant PUNK_ID = 5621;
 
     /*//////////////////////////////////////////////////////////////
                                 STORAGE
@@ -33,6 +33,80 @@ contract PunksDataTest is Test {
     function setUp() public {
         vm.createSelectFork("mainnet");
         palette = loadBytes(bytes32(SLOT_PALETTE));
+    }
+
+    function test_construct_image() public {
+        bytes memory pixels = buildPunkImage(PUNK_ID);
+        emit log_bytes(pixels);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                    LOGIC: IMAGE CONSTRUCTION
+    //////////////////////////////////////////////////////////////*/
+
+    function composite(bytes1 index, bytes1 yr, bytes1 yg, bytes1 yb, bytes1 ya) internal view returns (bytes4 rgba) {
+        uint256 x = uint256(uint8(index)) * 4;
+        uint8 xAlpha = uint8(palette[x + 3]);
+
+        if (xAlpha == 0xFF) {
+            rgba = bytes4(
+                uint32(
+                    (uint256(uint8(palette[x])) << 24) | (uint256(uint8(palette[x + 1])) << 16)
+                        | (uint256(uint8(palette[x + 2])) << 8) | xAlpha
+                )
+            );
+        } else {
+            uint64 key = (uint64(uint8(palette[x])) << 56) | (uint64(uint8(palette[x + 1])) << 48)
+                | (uint64(uint8(palette[x + 2])) << 40) | (uint64(xAlpha) << 32) | (uint64(uint8(yr)) << 24)
+                | (uint64(uint8(yg)) << 16) | (uint64(uint8(yb)) << 8) | (uint64(uint8(ya)));
+
+            rgba = bytes4(uint32(uint256(vm.load(punkData, keccak256(abi.encode(key, SLOT_COMPOSITES))))));
+        }
+    }
+
+    function buildPunkImage(uint16 index) internal returns (bytes memory) {
+        require(index >= 0 && index < 10000);
+        uint8 cell = getCell(index);
+        uint256 offset = getOffset(index);
+
+        bytes memory punks = loadBytes(keccak256(abi.encode(cell, SLOT_PUNKS)));
+
+        bytes memory pixels = new bytes(IMAGE_PIXEL_SIZE);
+        for (uint256 j; j < 8; ++j) {
+            uint8 assetKey = uint8(punks[offset + j]);
+            if (assetKey > 0) {
+                bytes memory asset = loadBytes(keccak256(abi.encode(assetKey, SLOT_ASSETS)));
+                uint256 n = asset.length / 3;
+                for (uint256 i; i < n; ++i) {
+                    uint256[4] memory v = [
+                        uint256(uint8(asset[i * 3]) & 0xF0) >> 4,
+                        uint256(uint8(asset[i * 3]) & 0xF),
+                        uint256(uint8(asset[i * 3 + 2]) & 0xF0) >> 4,
+                        uint256(uint8(asset[i * 3 + 2]) & 0xF)
+                    ];
+                    for (uint256 dx; dx < 2; ++dx) {
+                        for (uint256 dy; dy < 2; ++dy) {
+                            uint256 p = ((2 * v[1] + dy) * 24 + (2 * v[0] + dx)) * 4;
+                            if (v[2] & (1 << (dx * 2 + dy)) != 0) {
+                                bytes4 c =
+                                    composite(asset[i * 3 + 1], pixels[p], pixels[p + 1], pixels[p + 2], pixels[p + 3]);
+                                pixels[p] = c[0];
+                                pixels[p + 1] = c[1];
+                                pixels[p + 2] = c[2];
+                                pixels[p + 3] = c[3];
+                            } else if (v[3] & (1 << (dx * 2 + dy)) != 0) {
+                                pixels[p] = 0;
+                                pixels[p + 1] = 0;
+                                pixels[p + 2] = 0;
+                                pixels[p + 3] = 0xFF;
+                            }
+                        }
+                    }
+                }
+                vm.writeLine("./analysis/output.txt", vm.toString(pixels));
+            }
+        }
+        return pixels;
     }
 
     /*//////////////////////////////////////////////////////////////
