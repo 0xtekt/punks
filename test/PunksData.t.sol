@@ -32,13 +32,30 @@ contract PunksDataTest is Test {
 
     function setUp() public {
         vm.createSelectFork("mainnet");
+        palette = loadBytes(bytes32(SLOT_PALETTE));
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                    LOGIC: INDEXING
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Retrieve the `punks` mapping key, referred to as cell in `CryptopunksData`.
+    /// @param index The punk index.
+    function getCell(uint16 index) internal pure returns (uint8) {
+        return uint8(index / 100);
+    }
+
+    /// @notice Retrieves a pointer to encoded data for a given punk index.
+    /// @param index The punk index.
+    function getOffset(uint16 index) internal pure returns (uint256) {
+        return uint256(index % 100) * 8;
     }
 
     /*//////////////////////////////////////////////////////////////
                     LOGIC: LOAD BYTES FROM STORAGE
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Loads bytes (short and long) from a designated storage slot/s in the CryptopunksData contract.
+    /// @notice Loads bytes (short and long) from a designated storage slot/s in `CryptopunksData`.
     /// Logic covered:
     /// - Short arrays (< 32 bytes)
     /// - Long arrays:
@@ -46,7 +63,7 @@ contract PunksDataTest is Test {
     ///   - length > 32 bytes:
     ///     - final slot length = 32 bytes
     ///     - final slot length < 32 bytes
-    /// @param slot Storage slot for bytes -- ex: `palette`, `assets` or `punks` in CryptopunksData contract.
+    /// @param slot Storage slot for bytes -- ex: `palette`, `assets` or `punks` in `CryptopunksData`.
     function loadBytes(bytes32 slot) internal view returns (bytes memory) {
         bytes32 value = vm.load(punkData, slot);
 
