@@ -7,13 +7,15 @@ contract PunksDataTest is Test {
     /*//////////////////////////////////////////////////////////////
                                 USER DEFINED
     //////////////////////////////////////////////////////////////*/
-    uint16 internal constant PUNK_ID = 5621;
+    uint16 internal constant PUNK_ID = 7920;
 
     /*//////////////////////////////////////////////////////////////
                                 STORAGE
     //////////////////////////////////////////////////////////////*/
 
     bytes internal palette;
+
+    bytes[] internal layers;
 
     /*//////////////////////////////////////////////////////////////
                                 CONSTANTS
@@ -28,44 +30,52 @@ contract PunksDataTest is Test {
     uint256 internal constant SLOT_PUNKS = 4;
     uint256 internal constant IMAGE_PIXEL_SIZE = 2304;
 
-    error Error_CastToBytes(uint256 length);
-
     function setUp() public {
         vm.createSelectFork("mainnet");
         palette = loadBytes(bytes32(SLOT_PALETTE));
     }
 
-    function test_construct_image() public {
+    /*//////////////////////////////////////////////////////////////
+                    TEST: CONSTRUCT IMAGES
+    //////////////////////////////////////////////////////////////*/
+
+    function test_construct_images() public {
         bytes memory pixels = buildPunkImage(PUNK_ID);
         emit log_bytes(pixels);
+
+        writeLayers();
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                    TEST: EXPLANATION HELPERS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_punks() public {
+        uint8 cell = getCell(PUNK_ID);
+        uint256 offset = getOffset(PUNK_ID);
+
+        bytes memory punks = loadBytes(keccak256(abi.encode(cell, SLOT_PUNKS)));
+
+        emit log_named_uint("cell", cell);
+        emit log_named_uint("offset", offset);
+        emit log_named_uint("punks.length", punks.length);
+
+        bytes memory punkAssetPointers;
+        for (uint256 i; i < 8; ++i) {
+            punkAssetPointers = bytes.concat(punkAssetPointers, punks[offset + i]);
+        }
+        emit log_named_bytes("punk asset pointers", punkAssetPointers);
     }
 
     /*//////////////////////////////////////////////////////////////
                     LOGIC: IMAGE CONSTRUCTION
     //////////////////////////////////////////////////////////////*/
 
-    function composite(bytes1 index, bytes1 yr, bytes1 yg, bytes1 yb, bytes1 ya) internal view returns (bytes4 rgba) {
-        uint256 x = uint256(uint8(index)) * 4;
-        uint8 xAlpha = uint8(palette[x + 3]);
-
-        if (xAlpha == 0xFF) {
-            rgba = bytes4(
-                uint32(
-                    (uint256(uint8(palette[x])) << 24) | (uint256(uint8(palette[x + 1])) << 16)
-                        | (uint256(uint8(palette[x + 2])) << 8) | xAlpha
-                )
-            );
-        } else {
-            uint64 key = (uint64(uint8(palette[x])) << 56) | (uint64(uint8(palette[x + 1])) << 48)
-                | (uint64(uint8(palette[x + 2])) << 40) | (uint64(xAlpha) << 32) | (uint64(uint8(yr)) << 24)
-                | (uint64(uint8(yg)) << 16) | (uint64(uint8(yb)) << 8) | (uint64(uint8(ya)));
-
-            rgba = bytes4(uint32(uint256(vm.load(punkData, keccak256(abi.encode(key, SLOT_COMPOSITES))))));
-        }
-    }
-
+    /// @notice Adapeted `punkImage` function from CryptopunksData contract.
+    /// @dev Saves pixels built for each layer in storage.
     function buildPunkImage(uint16 index) internal returns (bytes memory) {
-        require(index >= 0 && index < 10000);
+        if (index >= 10000) revert PunkIndexTooHigh();
+
         uint8 cell = getCell(index);
         uint256 offset = getOffset(index);
 
@@ -103,10 +113,44 @@ contract PunksDataTest is Test {
                         }
                     }
                 }
-                vm.writeLine("./analysis/output.txt", vm.toString(pixels));
+                layers.push(pixels);
             }
         }
         return pixels;
+    }
+
+    /// @notice Writes stored punk asset layers to an output file.
+    function writeLayers() internal {
+        string memory s;
+        for (uint256 i; i < layers.length; ++i) {
+            if (i != 0) {
+                s = string.concat(s, string.concat("\n", vm.toString(layers[i])));
+            } else {
+                s = string.concat(s, vm.toString(layers[i]));
+            }
+        }
+        vm.writeFile("./analysis/output.txt", s);
+    }
+
+    /// @notice Adapted composite function from CryptopunksData contract.
+    function composite(bytes1 index, bytes1 yr, bytes1 yg, bytes1 yb, bytes1 ya) internal view returns (bytes4 rgba) {
+        uint256 x = uint256(uint8(index)) * 4;
+        uint8 xAlpha = uint8(palette[x + 3]);
+
+        if (xAlpha == 0xFF) {
+            rgba = bytes4(
+                uint32(
+                    (uint256(uint8(palette[x])) << 24) | (uint256(uint8(palette[x + 1])) << 16)
+                        | (uint256(uint8(palette[x + 2])) << 8) | xAlpha
+                )
+            );
+        } else {
+            uint64 key = (uint64(uint8(palette[x])) << 56) | (uint64(uint8(palette[x + 1])) << 48)
+                | (uint64(uint8(palette[x + 2])) << 40) | (uint64(xAlpha) << 32) | (uint64(uint8(yr)) << 24)
+                | (uint64(uint8(yg)) << 16) | (uint64(uint8(yb)) << 8) | (uint64(uint8(ya)));
+
+            rgba = bytes4(uint32(uint256(vm.load(punkData, keccak256(abi.encode(key, SLOT_COMPOSITES))))));
+        }
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -282,7 +326,10 @@ contract PunksDataTest is Test {
         } else if (length == 62) {
             return abi.encodePacked(bytes31(slotValue));
         } else {
-            revert Error_CastToBytes(length);
+            revert CastToBytesFailed(length);
         }
     }
+
+    error CastToBytesFailed(uint256 length);
+    error PunkIndexTooHigh();
 }
